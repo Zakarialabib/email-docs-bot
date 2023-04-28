@@ -4,9 +4,9 @@ This project is a Python bot that connects to an email account, searches for ema
 
 You will need email credentials :
 
-email server address
-email account username
-email account password
-keywords to search for in email subject lines // not yet inserted
-output directory for the saved documents
+  - email server address
+  - email account username
+  - email account password
+  - keywords to search for in email subject lines // not yet inserted
+  - output directory for the saved documents
 

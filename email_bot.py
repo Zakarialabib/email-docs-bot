@@ -1,35 +1,23 @@
 import os
 import sqlite3
-import datetime
 import imaplib 
 import sys
 import email
 import re
 import sqlite3
 from email.message import EmailMessage
-from email.utils import parseaddr
-from PyQt5.QtCore import Qt, QThread
-from PyQt5.QtWidgets import (
-    QApplication,
-    QWidget,
-    QComboBox,
-    QGridLayout,
-    QHBoxLayout,
-    QProgressBar,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QFileDialog,
-    QMessageBox
-)
+from email.header import decode_header
+from PyQt5.QtWidgets import * 
+from PyQt5.QtGui import * 
+from PyQt5.QtCore import *
 
-DB_FILE = "settings.sqlite3"
+current_dir = os.getcwd()
+
+DB_FILE = os.path.join(current_dir, "settings.sqlite3")
 
 class Settings:
-    """This class represents the settings for the email bot."""
 
     def __init__(self, server, username, password, port, security, output_dir, keywords):
-        """Initialize the settings."""
         self.server = server
         self.username = username
         self.password = password
@@ -39,7 +27,6 @@ class Settings:
         self.keywords = keywords
 
     def save(self):
-        """Save the settings to the database."""
         # Check if the database exists.
         if not os.path.exists(DB_FILE):
             # Create the database.
@@ -66,9 +53,29 @@ class Settings:
             """, (self.server, self.username, self.password, self.port, self.security, self.output_dir, ', '.join(self.keywords)))
             conn.commit()
 
+    def update(self):
+        # Check if the database exists.
+        if not os.path.exists(DB_FILE):
+            # Create the database.
+            self.create_database()
+
+        # Connect to the database.
+        with sqlite3.connect(DB_FILE) as conn:
+            c = conn.cursor()
+            c.execute("""
+                UPDATE settings
+                SET server = ?,
+                    username = ?,
+                    password = ?,
+                    port = ?,
+                    security = ?,
+                    output_dir = ?,
+                    keywords = ?
+            """, (self.server, self.username, self.password, self.port, self.security, self.output_dir, self.keywords))
+            conn.commit() 
+
     @staticmethod
     def get():
-        """Get the settings from the database."""
         # Check if the database exists.
         if not os.path.exists(DB_FILE):
             return None
@@ -148,31 +155,53 @@ class EmailBot(QWidget):
         # Create a label and text field for the output directory input.    
         output_dir_label = QLabel("Output Directory:")
         self.output_dir_input = QLineEdit()
+        output_dir_button = QPushButton("Browse")
+        output_dir_button.setToolTip("Select output directory")
         output_dir_layout = QHBoxLayout()
         output_dir_layout.addWidget(output_dir_label)
         output_dir_layout.addWidget(self.output_dir_input)
-        output_dir_button = QPushButton("Browse")
+
+        # Add QLabel to display output directory path
+        self.output_dir_path_label = QLabel("No output directory selected")
+        output_dir_layout.addWidget(self.output_dir_path_label)
+
         output_dir_button.clicked.connect(self.browse_output_dir)
-        output_dir_layout.addWidget(output_dir_button)    
+        output_dir_layout.addWidget(output_dir_button)
         
         # Add the output directory button to the main layout.
         main_layout.addWidget(output_dir_button, 6, 0)
 
         # Create a horizontal layout for the buttons.        
         buttons_layout = QHBoxLayout()
-        # Create the save, load, test connection, and check email for invoices buttons.
+         
+        # Create a label and add the logo image to it.
+        logo_label = QLabel()
+        logo_image = QPixmap(os.path.join(current_dir, "logo.png"))
+        logo_label.setPixmap(logo_image)
+        main_layout.addWidget(logo_label, 0, 2, 7, 1)
 
-        save_button = QPushButton("Save")        
-        load_button = QPushButton("Load")
-        test_connection_button = QPushButton("Test Connection")        
-        check_email_for_invoices_button = QPushButton("Check Email for Invoices")
+        self.setWindowIcon(QIcon(os.path.join(current_dir, "logo.png")))
 
-        # Add the buttons to the horizontal layout.
+        save_button = QPushButton("Save")
+        save_button.setToolTip("Save settings")
         buttons_layout.addWidget(save_button)        
-        buttons_layout.addWidget(load_button)
-        buttons_layout.addWidget(test_connection_button)        
-        buttons_layout.addWidget(check_email_for_invoices_button)
+        save_button.clicked.connect(self.save_settings)
         
+        load_button = QPushButton("Load")
+        load_button.setToolTip("Load settings")
+        buttons_layout.addWidget(load_button)
+        load_button.clicked.connect(self.load_settings)        
+        
+        test_connection_button = QPushButton("Test Connection")
+        test_connection_button.setToolTip("Test connection")
+        buttons_layout.addWidget(test_connection_button)        
+        test_connection_button.clicked.connect(self.test_connection)
+        
+        check_email_for_invoices_button = QPushButton("Check Email for Documents")
+        check_email_for_invoices_button.setToolTip("Check email for Documents")
+        buttons_layout.addWidget(check_email_for_invoices_button)
+        check_email_for_invoices_button.clicked.connect(self.check_email_for_invoices)
+
         # Add the horizontal layout to the main layout.
         main_layout.addLayout(buttons_layout, 7, 0)
 
@@ -182,11 +211,18 @@ class EmailBot(QWidget):
         # Set the size of the window to 600x600 pixels.
         self.setFixedSize(600, 600)
 
-        # Connect the buttons to their respective functions.        
-        save_button.clicked.connect(self.save_settings)
-        load_button.clicked.connect(self.load_settings)        
-        test_connection_button.clicked.connect(self.test_connection)
-        check_email_for_invoices_button.clicked.connect(self.check_email_for_invoices)
+        # Get the screen resolution.
+        screen_resolution = QApplication.desktop().screenGeometry()
+
+        # Calculate the center of the screen.
+        center_x = int((screen_resolution.width() - self.width()) / 2)
+        center_y = int((screen_resolution.height() - self.height()) / 2)
+
+        # Move the window to the center of the screen.
+        self.move(center_x, center_y)
+
+        self.setWindowTitle("Email Documents Downloader Settings")
+
 
     def browse_output_dir(self):
         options = QFileDialog.Options()
@@ -194,6 +230,7 @@ class EmailBot(QWidget):
         output_dir = QFileDialog.getExistingDirectory(self, "Select Directory", options=options)
         if output_dir:
             self.output_dir_input.setText(output_dir)
+            self.output_dir_path_label.setText(output_dir)
 
     def test_connection(self):
         # Load settings
@@ -216,6 +253,7 @@ class EmailBot(QWidget):
         imap_server.logout()
 
     def load_settings(self):
+       
         # Load the settings
         settings = Settings.get()
 
@@ -233,13 +271,13 @@ class EmailBot(QWidget):
 
         # Populate the keywords field if it exists
         if settings is not None and settings.keywords is not None:
-            self.keywords_input.setText(" ".join(settings.keywords))
+            self.keywords_input.setText(settings.keywords)
 
         # Display a pop-up to confirm the loading
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Information)
         msg.setText("App loaded successfully.")
-        msg.setWindowTitle("Confirmation")
+        msg.setWindowTitle("Documents Extrator")
         msg.exec_()
 
     def save_settings(self):
@@ -249,12 +287,8 @@ class EmailBot(QWidget):
         password = self.password_input.text()
         security = self.encryption_input.currentText()
         port = int(self.port_input.text())
-
-        # Get the path
         output_dir = self.output_dir_input.text()
-
-        # Get the keywords
-        keywords = self.keywords_input.text().split()
+        keywords = self.keywords_input.text()
 
         # Validate the settings
         if not server or not username or not password:
@@ -267,10 +301,9 @@ class EmailBot(QWidget):
 
         # Save the settings
         settings = Settings(server, username, password, port, security, output_dir, keywords)
-        settings.save()
+        settings.update()
 
-        QMessageBox.information(self, "Success", "Settings saved.")
-
+        QMessageBox.information(self, "Success", "Settings updated.")
 
     def check_email_for_invoices(self, keywords):
         # Load settings
@@ -288,50 +321,64 @@ class EmailBot(QWidget):
             QMessageBox.critical(self, "Error", str(e))
             return
 
-        # Search for messages that contain the keywords
-        status, messages = imap_server.search(None, "UNSEEN")         
-        
-        if status != "OK":         
-          return False 
+        # Search for emails with attachments and keywords
+        keywords = settings.keywords if settings.keywords else []
+        search_query = " ".join(["(ALL)", "OR"] + [f'(SUBJECT "{k}")' for k in keywords] + [""])
+        result, email_ids = imap_server.search(None, search_query)
+ 
+        if result == "OK":
+           # Process each email with attachments and keywords
+           num_emails = len(email_ids[0].split())
+           progress_dialog = QProgressDialog("Saving Documents...", "Cancel", 0, num_emails, self)
+           progress_dialog.setWindowModality(Qt.WindowModal)
+           progress_dialog.setWindowTitle("Checking Documents")
+           progress_dialog.show()
+           progress = 0
 
-        # Iterate over the results and save the message IDs to a list
-        invoice_count = 0
-        for message_id in messages[0].split():
-            # Fetch the bodies of the messages that were found
-            status, data = imap_server.fetch(message_id, '(RFC822)')
-            if status != 'OK':
-                print('Error fetching message {}.'.format(message_id))
+           for email_id in email_ids[0].split():
+                if progress_dialog.wasCanceled():
+                    break
+
+                result, email_data = imap_server.fetch(email_id, "(RFC822)")
+                email_message = email.message_from_bytes(email_data[0][1])
+                attachments = self.get_attachments_from_email(email_message)
+                if attachments:
+                    # Extract sender email
+                    sender = email_message["From"]
+                    email_address = re.findall(r'<(.+?)>', sender)[0]
+
+                    # Create folder for sender
+                    output_dir = os.path.join(settings.output_dir, email_address)
+                    if not os.path.exists(output_dir):
+                        os.mkdir(output_dir)
+
+                    for attachment in attachments:
+                        # Check if file is a document
+                        if attachment[0].split(".")[-1] in ["pdf", "xls", "xlsx","csv", "doc"]:
+                            attachment_path = os.path.join(output_dir, attachment[0])
+                            with open(attachment_path, "wb") as f:
+                                f.write(attachment[1])
+
+                    imap_server.store(email_id, "+FLAGS", "\\Seen")
+                    progress += 1
+                    progress_dialog.setValue(progress)
+                    progress_dialog.setLabelText(f"Saving document from {email_address}...")
+
+           progress_dialog.close()
+           imap_server.logout()
+
+    def get_attachments_from_email(self, email_message):
+        attachments = []
+        for part in email_message.walk():
+            if part.get("Content-Disposition") is None:
                 continue
-
-            message = email.message_from_bytes(data[0][1])
-
-            # Extract the sender and the file extension
-            sender = message.get('From')
-            attachment = message.get_payload()[0]
-            filename = attachment.get_filename()
-            if not filename:
-                continue
-
-            extension = os.path.splitext(filename)[1][1:].lower()
-            if extension not in ["pdf", "xls", "xlsx", "doc"]:
-                continue
-
-            # Create a new folder for each sender
-            folder_name = os.path.join(settings.output_dir, sender)
-            if not os.path.exists(folder_name):
-                os.mkdir(folder_name)
-
-
-        # Logout of email server
-        imap_server.logout()
-
-        # Show a message box with the number of invoices found
-        if invoice_count == 0:
-            QMessageBox.information(self, "Success", "Found {} invoices.".format(invoice_count))
-        else:
-            QMessageBox.information(self, "No invoices found", "No invoices were found with the given keywords.")
-
-  
+            filename = decode_header(part.get_filename())[0][0]
+            if isinstance(filename, bytes):
+                filename = filename.decode()
+            attachment = (filename, part.get_payload(decode=True))
+            attachments.append(attachment)
+        return attachments
+    
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     
